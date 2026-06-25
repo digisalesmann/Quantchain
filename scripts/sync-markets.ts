@@ -131,6 +131,25 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+// Pooled Postgres connections (e.g. Supabase's PgBouncer) can drop an idle backend connection
+// during this script's multi-minute run (long CoinGecko delays between writes), and transient
+// network blips can hit the initial connection too — both surface as "Can't reach database
+// server" (P1001 on known-request errors, no code at all on initialization errors) even though
+// the database itself is fine. Retry a few times with backoff before giving up.
+async function withDbRetry<T>(fn: () => Promise<T>, attempt = 1): Promise<T> {
+  try {
+    return await fn()
+  } catch (err) {
+    const unreachable = err instanceof Error && err.message.includes("Can't reach database server")
+    if (unreachable && attempt < 4) {
+      console.warn(`[sync-markets] lost connection to the database, retrying (${attempt}/3)...`)
+      await sleep(attempt * 2000)
+      return withDbRetry(fn, attempt + 1)
+    }
+    throw err
+  }
+}
+
 async function main() {
   fs.mkdirSync(ICONS_DIR, { recursive: true })
 
@@ -187,16 +206,18 @@ async function main() {
       fullyDilutedValuation: (coin.fully_diluted_valuation ?? 0).toString()
     }
 
-    const existing = await prisma.market.findUnique({ where: { symbol } })
+    const existing = await withDbRetry(() => prisma.market.findUnique({ where: { symbol } }))
 
     if (existing) {
-      await prisma.market.update({ where: { symbol }, data: metadata })
+      await withDbRetry(() => prisma.market.update({ where: { symbol }, data: metadata }))
       updated++
     } else {
       const precision = decimalsForPrice(coin.current_price ?? 1)
-      await prisma.market.create({
-        data: { symbol, baseAsset, quoteAsset: 'USD', status: 'ACTIVE', ...precision, ...metadata }
-      })
+      await withDbRetry(() =>
+        prisma.market.create({
+          data: { symbol, baseAsset, quoteAsset: 'USD', status: 'ACTIVE', ...precision, ...metadata }
+        })
+      )
       created++
     }
 
@@ -207,45 +228,53 @@ async function main() {
 
   // Drop markets that fell out of the live top 50 since the last sync — but only if nobody has
   // actually traded them (real orders/trades on a real, if now-smaller, market shouldn't vanish).
-  const staleMarkets = await prisma.market.findMany({
-    where: { symbol: { notIn: Array.from(seenSymbols) } },
-    include: { _count: { select: { orders: true, trades: true } } }
-  })
+  const staleMarkets = await withDbRetry(() =>
+    prisma.market.findMany({
+      where: { symbol: { notIn: Array.from(seenSymbols) } },
+      include: { _count: { select: { orders: true, trades: true } } }
+    })
+  )
   for (const market of staleMarkets) {
     if (market._count.orders > 0 || market._count.trades > 0) {
       console.warn(`[sync-markets] leaving ${market.symbol} — fell out of top ${TOP_N} but has order/trade history`)
       continue
     }
-    await prisma.market.delete({ where: { id: market.id } })
+    await withDbRetry(() => prisma.market.delete({ where: { id: market.id } }))
     console.log(`[sync-markets] removed ${market.symbol} — fell out of top ${TOP_N}`)
   }
 
   const stakeableAssets = new Set<string>()
   for (const [geckoId, config] of Object.entries(STAKING_CONFIG)) {
-    const market = await prisma.market.findUnique({ where: { geckoId } })
+    const market = await withDbRetry(() => prisma.market.findUnique({ where: { geckoId } }))
     if (!market) continue
     stakeableAssets.add(market.baseAsset)
-    const existingProduct = await prisma.stakingProduct.findFirst({ where: { asset: market.baseAsset } })
+    const existingProduct = await withDbRetry(() => prisma.stakingProduct.findFirst({ where: { asset: market.baseAsset } }))
     if (existingProduct) {
-      await prisma.stakingProduct.update({ where: { id: existingProduct.id }, data: { name: config.name, apy: config.apy, lockupDays: config.lockupDays } })
+      await withDbRetry(() =>
+        prisma.stakingProduct.update({ where: { id: existingProduct.id }, data: { name: config.name, apy: config.apy, lockupDays: config.lockupDays } })
+      )
     } else {
-      await prisma.stakingProduct.create({ data: { name: config.name, asset: market.baseAsset, apy: config.apy, lockupDays: config.lockupDays } })
+      await withDbRetry(() =>
+        prisma.stakingProduct.create({ data: { name: config.name, asset: market.baseAsset, apy: config.apy, lockupDays: config.lockupDays } })
+      )
     }
   }
   console.log(`[sync-markets] staking products synced for ${stakeableAssets.size} assets`)
 
   // Remove stale products for assets that are no longer in the stakeable set (e.g. an earlier
   // "Bitcoin flexible earn" product — BTC isn't proof-of-stake, so it shouldn't be stakeable).
-  const staleProducts = await prisma.stakingProduct.findMany({
-    where: { asset: { notIn: Array.from(stakeableAssets) } },
-    include: { _count: { select: { positions: true } } }
-  })
+  const staleProducts = await withDbRetry(() =>
+    prisma.stakingProduct.findMany({
+      where: { asset: { notIn: Array.from(stakeableAssets) } },
+      include: { _count: { select: { positions: true } } }
+    })
+  )
   for (const product of staleProducts) {
     if (product._count.positions > 0) {
       console.warn(`[sync-markets] leaving stale staking product "${product.name}" (${product.asset}) — has open positions`)
       continue
     }
-    await prisma.stakingProduct.delete({ where: { id: product.id } })
+    await withDbRetry(() => prisma.stakingProduct.delete({ where: { id: product.id } }))
     console.log(`[sync-markets] removed stale staking product "${product.name}" (${product.asset})`)
   }
 }
