@@ -166,14 +166,16 @@ function LoggedOutHome({
               <Link href="/markets">Explore markets</Link>
             </Button>
           </div>
-          <div className="mt-8 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-sm text-muted-foreground">
-            {TRUST_BADGES.map((b, i) => (
-              <React.Fragment key={b}>
-                {i > 0 && <span className="text-muted-foreground/40">·</span>}
-                <span>{b}</span>
-              </React.Fragment>
+          <p className="mt-8 max-w-md text-sm leading-relaxed text-muted-foreground">
+            {TRUST_BADGES.map((b) => (
+              <span
+                key={b}
+                className="before:mx-2.5 before:inline-block before:h-3 before:w-px before:translate-y-0.5 before:bg-border before:content-[''] first:before:content-none"
+              >
+                {b}
+              </span>
             ))}
-          </div>
+          </p>
         </div>
 
         <PhoneVideo src="/videos/wallet-trade.mp4" />

@@ -36,7 +36,7 @@ export default function Footer() {
   return (
     <footer className="mt-16">
       <Divider />
-      <div className="grid grid-cols-2 gap-10 py-12 md:grid-cols-4">
+      <div className="grid grid-cols-1 gap-8 py-12 sm:grid-cols-2 sm:gap-10 md:grid-cols-4">
         <div>
           <Link href="/">
             <Logo />

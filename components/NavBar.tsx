@@ -93,9 +93,9 @@ export default function NavBar() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2, ease: 'easeOut' }}
-            className="fixed inset-x-0 top-16 z-40 flex h-[calc(100vh-4rem)] flex-col overflow-y-auto bg-background md:hidden"
+            className="fixed inset-x-0 top-16 z-40 flex h-[calc(100dvh-4rem)] flex-col overflow-y-auto bg-background md:hidden"
           >
-            <nav className="container flex flex-1 flex-col justify-center gap-1 py-8">
+            <nav className="container flex flex-1 flex-col justify-start gap-1 py-8">
               {MARKETING_NAV_LINKS.map((link, i) => {
                 const active = pathname.startsWith(link.href)
                 return (

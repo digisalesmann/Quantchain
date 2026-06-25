@@ -16,15 +16,15 @@ export default function OnboardingNudge() {
   if (dismissed) return null
 
   return (
-    <div className="mb-8 flex items-center justify-between gap-4 rounded-2xl border border-border bg-muted/40 px-5 py-4">
-      <Link href="/onboarding" className="flex items-center gap-3">
-        <GlassIcon icon={Sparkles} size={16} />
-        <span className="text-sm">
-          <span className="font-medium">Finish setting up your account</span>
-          <span className="ml-1.5 text-muted-foreground">Add your profile and security details</span>
+    <div className="mb-8 flex flex-col gap-2 border-b border-border pb-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+      <Link href="/onboarding" className="flex min-w-0 items-center gap-3">
+        <GlassIcon icon={Sparkles} size={16} className="shrink-0" />
+        <span className="min-w-0 text-sm">
+          <span className="block font-medium">Finish setting up your account</span>
+          <span className="block text-muted-foreground">Add your profile and security details</span>
         </span>
       </Link>
-      <div className="flex items-center gap-3">
+      <div className="flex shrink-0 items-center gap-3 pl-8 sm:pl-0">
         <Link href="/onboarding" className="flex items-center gap-1 text-sm font-medium text-primary hover:underline">
           Continue
           <GlassIcon icon={ArrowRight} size={11} />
