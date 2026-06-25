@@ -29,6 +29,7 @@ export async function POST(req: NextRequest) {
     res.headers.append('Set-Cookie', refreshCookie)
     return res
   } catch (e) {
+    console.error('[login] error', e)
     return NextResponse.json({ error: 'Server error' }, { status: 500 })
   }
 }
