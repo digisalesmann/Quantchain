@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+
+# next.js
+.next/
+out/
+
+# env
+.env
+.env.local
+.env.*.local
+
+# misc
+.DS_Store
+*.log
+npm-debug.log*
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# local reference dumps (saved web pages, not part of the app)
+Buy & Sell Bitcoin, Ethereum, and more with trust.html
+Buy & Sell Bitcoin, Ethereum, and more with trust_files/
+Buy & Sell Bitcoin.html
+Buy & Sell Bitcoin_files/

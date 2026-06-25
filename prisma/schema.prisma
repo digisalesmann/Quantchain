@@ -1,0 +1,366 @@
+// Prisma schema for Crypto Exchange (core models)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+  MERCHANT
+  INSTITUTION
+}
+
+enum KYCStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum OrderSide {
+  BUY
+  SELL
+}
+
+enum OrderType {
+  LIMIT
+  MARKET
+  IOC
+  FOK
+}
+
+enum OrderStatus {
+  NEW
+  PARTIALLY_FILLED
+  FILLED
+  CANCELED
+  REJECTED
+}
+
+enum WithdrawalStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  REJECTED
+  CANCELLED
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String?
+  googleId      String?  @unique
+  role          Role     @default(USER)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  profile       Profile?
+  kyc           KYCRecord?
+  sessions      Session[]
+  wallets       Wallet[]
+  apiKeys       ApiKey[]
+  referrals     Referral[] @relation("referrer")
+  referredById  String?
+  referredBy    User?      @relation("ReferredBy", fields: [referredById], references: [id])
+  referredUsers User[]     @relation("ReferredBy")
+  orders        Order[]
+  notifications Notification[]
+  withdrawals   Withdrawal[]
+  priceAlerts   PriceAlert[]
+  stakingPositions StakingPosition[]
+  p2pListings   P2PListing[]
+  // WebAuthn / Passkeys
+  webauthnKeys  WebAuthnKey[]
+  // TOTP 2FA
+  totpSecret    String?
+  totpEnabled   Boolean   @default(false)
+  notificationPreference NotificationPreference?
+  locked        Boolean   @default(false)
+  onboardingCompletedAt DateTime?
+}
+
+model Profile {
+  id            String    @id @default(cuid())
+  user          User      @relation(fields: [userId], references: [id])
+  userId        String    @unique
+  fullName      String?
+  displayName   String?
+  country       String?
+  phone         String?
+  avatarUrl     String?
+  dateOfBirth   DateTime?
+  addressLine1  String?
+  addressLine2  String?
+  city          String?
+  state         String?
+  postalCode    String?
+}
+
+model KYCRecord {
+  id            String   @id @default(cuid())
+  user          User     @relation(fields: [userId], references: [id])
+  userId        String   @unique
+  status        KYCStatus @default(PENDING)
+  providerId    String?   // third-party provider reference
+  documentType  String?
+  submittedAt   DateTime?
+  reviewedAt    DateTime?
+  reviewerId    String?
+  notes         String?
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  user       User     @relation(fields: [userId], references: [id])
+  userId     String
+  device     String?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @updatedAt
+  expiresAt  DateTime
+  revoked    Boolean  @default(false)
+}
+
+model ApiKey {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  name      String
+  keyHash   String
+  secretHash String
+  scopes    String
+  createdAt DateTime @default(now())
+  revoked   Boolean  @default(false)
+}
+
+model Wallet {
+  id            String   @id @default(cuid())
+  user          User     @relation(fields: [userId], references: [id])
+  userId        String
+  chain         String
+  address       String   @unique
+  label         String?
+  balance       Decimal  @default("0")
+  available     Decimal  @default("0")
+  reserved      Decimal  @default("0")
+  isHot         Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  transactions  Transaction[]
+  withdrawals   Withdrawal[]
+}
+
+model Transaction {
+  id           String   @id @default(cuid())
+  wallet       Wallet   @relation(fields: [walletId], references: [id])
+  walletId     String
+  type         String   // DEPOSIT/WITHDRAWAL/TRANSFER/TRADING
+  amount       Decimal
+  fee          Decimal  @default("0")
+  status       String
+  txHash       String?
+  chain        String?
+  createdAt    DateTime @default(now())
+}
+
+model Market {
+  id           String   @id @default(cuid())
+  symbol       String   @unique // e.g., BTC-USD
+  baseAsset    String
+  quoteAsset   String
+  baseDecimals Int
+  quoteDecimals Int
+  minOrderSize Decimal
+  tickSize     Decimal
+  status       String
+  orders       Order[]
+  trades       Trade[]
+
+  // Catalog metadata synced from CoinGecko via scripts/sync-markets.ts
+  name                  String?
+  geckoId               String?  @unique
+  marketCapRank         Int?
+  logoPath              String?
+  iconBg                String?
+  about                 String?
+  website               String?
+  whitepaper            String?
+  walletChain           String?
+  stakeable             Boolean  @default(false)
+  basePrice             Decimal?
+  marketCap             Decimal?
+  volume24h             Decimal?
+  circulatingSupply     Decimal?
+  ath                   Decimal?
+  fullyDilutedValuation Decimal?
+}
+
+model Order {
+  id          String     @id @default(cuid())
+  user        User       @relation(fields: [userId], references: [id])
+  userId      String
+  market      Market     @relation(fields: [marketId], references: [id])
+  marketId    String
+  side        OrderSide
+  type        OrderType
+  price       Decimal?
+  amount      Decimal
+  filled      Decimal    @default("0")
+  status      OrderStatus @default(NEW)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  buyTrades   Trade[]    @relation("buyTrades")
+  sellTrades  Trade[]    @relation("sellTrades")
+}
+
+model Trade {
+  id         String   @id @default(cuid())
+  buyOrder   Order?   @relation("buyTrades", fields: [buyOrderId], references: [id])
+  buyOrderId String?
+  sellOrder  Order?   @relation("sellTrades", fields: [sellOrderId], references: [id])
+  sellOrderId String?
+  market     Market   @relation(fields: [marketId], references: [id])
+  marketId   String
+  price      Decimal
+  amount     Decimal
+  takerId    String?
+  makerId    String?
+  createdAt  DateTime @default(now())
+}
+
+model Withdrawal {
+  id            String          @id @default(cuid())
+  user          User            @relation(fields: [userId], references: [id])
+  userId        String
+  wallet        Wallet?         @relation(fields: [walletId], references: [id])
+  walletId      String?
+  chain         String
+  address       String
+  amount        Decimal
+  fee           Decimal         @default("0")
+  status        WithdrawalStatus @default(PENDING)
+  txHash        String?
+  requestedAt   DateTime        @default(now())
+  processedAt   DateTime?
+}
+
+model PriceAlert {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  marketId  String
+  condition String   // e.g., >, <, crosses
+  price     Decimal
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model Referral {
+  id         String  @id @default(cuid())
+  referrer   User    @relation("referrer", fields: [referrerId], references: [id])
+  referrerId String
+  refereeId  String
+  reward     Decimal @default("0")
+  createdAt  DateTime @default(now())
+}
+
+model StakingProduct {
+  id            String  @id @default(cuid())
+  name          String
+  asset         String
+  apy           Decimal
+  lockupDays    Int
+  createdAt     DateTime @default(now())
+  positions     StakingPosition[]
+}
+
+model StakingPosition {
+  id              String  @id @default(cuid())
+  user            User    @relation(fields: [userId], references: [id])
+  userId          String
+  product         StakingProduct @relation(fields: [productId], references: [id])
+  productId       String
+  amount          Decimal
+  rewardAccrued   Decimal @default("0")
+  startedAt       DateTime @default(now())
+  endsAt          DateTime
+}
+
+model P2PListing {
+  id          String   @id @default(cuid())
+  user        User     @relation(fields: [userId], references: [id])
+  userId      String
+  asset       String
+  amount      Decimal
+  price       Decimal
+  fiatCurrency String
+  status      String
+  createdAt   DateTime @default(now())
+  escrows     Escrow[]
+}
+
+model Escrow {
+  id           String   @id @default(cuid())
+  listing      P2PListing? @relation(fields: [listingId], references: [id])
+  listingId    String?
+  buyerId      String
+  sellerId     String
+  arbiterId    String?
+  amount       Decimal
+  status       String
+  createdAt    DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+  channel   String   // email, push, sms
+  title     String
+  body      String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model NotificationPreference {
+  id                  String   @id @default(cuid())
+  user                User     @relation(fields: [userId], references: [id])
+  userId              String   @unique
+  accountActivity     Boolean  @default(true)
+  advancedTransaction Boolean  @default(true)
+  securityAlerts      Boolean  @default(true)
+  news                Boolean  @default(true)
+  offers              Boolean  @default(true)
+  updatedAt           DateTime @updatedAt
+}
+
+model AdminAudit {
+  id        String   @id @default(cuid())
+  adminId   String
+  action    String
+  details   String?
+  createdAt DateTime @default(now())
+}
+
+model AMLAlert {
+  id        String   @id @default(cuid())
+  userId    String
+  reason    String
+  score     Float
+  createdAt DateTime @default(now())
+}
+
+model WebAuthnKey {
+  id           String   @id @default(cuid())
+  user         User     @relation(fields: [userId], references: [id])
+  userId       String
+  credentialID String   @unique
+  publicKey    String
+  counter      Int      @default(0)
+  transports   String?
+  createdAt    DateTime @default(now())
+}
