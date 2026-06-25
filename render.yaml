@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: quantchain-ws
+    runtime: node
+    plan: free
+    buildCommand: npm install --include=dev && npx prisma generate
+    startCommand: npx tsx server/ws-server.ts
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false

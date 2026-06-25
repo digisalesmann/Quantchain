@@ -1,13 +1,16 @@
 // Standalone WebSocket process that polls real live crypto prices from CoinGecko's
 // public API and broadcasts ticker updates to subscribed clients. Runs alongside
 // `next dev` via `npm run dev:ws`.
+import { createServer } from 'http'
 import { WebSocketServer, WebSocket } from 'ws'
 import Redis from 'ioredis'
 import prisma from '../lib/prisma'
 import { tickerKey } from '../lib/prices'
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379'
-const WS_PORT = parseInt(process.env.WS_PORT || '4001')
+// Render (and most container hosts) assign the listen port via PORT — fall back to
+// WS_PORT/4001 for local dev where the port is fixed in .env.
+const WS_PORT = parseInt(process.env.PORT || process.env.WS_PORT || '4001')
 const TICK_MS = 30_000
 const PUBLISH_CHANNEL = 'ticker-updates'
 const COINGECKO_URL = 'https://api.coingecko.com/api/v3/coins/markets'
@@ -23,9 +26,13 @@ let GECKO_ID_TO_SYMBOL: Record<string, string> = {}
 async function loadMarkets() {
   const rows = await prisma.market.findMany({
     where: { geckoId: { not: null } },
-    select: { symbol: true, geckoId: true, basePrice: true }
+    select: { symbol: true, geckoId: true, basePrice: true },
   })
-  MARKETS = rows.map((r) => ({ symbol: r.symbol, geckoId: r.geckoId as string, basePrice: r.basePrice ? parseFloat(r.basePrice.toString()) : 0 }))
+  MARKETS = rows.map((r) => ({
+    symbol: r.symbol,
+    geckoId: r.geckoId as string,
+    basePrice: r.basePrice ? parseFloat(r.basePrice.toString()) : 0,
+  }))
   GECKO_ID_TO_SYMBOL = Object.fromEntries(MARKETS.map((m) => [m.geckoId, m.symbol]))
 }
 
@@ -59,7 +66,7 @@ async function seedFallback(symbol: string, basePrice: number) {
     circulatingSupply: '0',
     ath: '0',
     fullyDilutedValuation: '0',
-    updatedAt: '0'
+    updatedAt: '0',
   })
 }
 
@@ -88,7 +95,7 @@ async function fetchLivePrices() {
       circulatingSupply: coin.circulating_supply ?? 0,
       ath: coin.ath ?? 0,
       fullyDilutedValuation: coin.fully_diluted_valuation ?? 0,
-      logo: coin.image
+      logo: coin.image,
     }
 
     await redis.hset(tickerKey(symbol), {
@@ -102,7 +109,7 @@ async function fetchLivePrices() {
       ath: payload.ath.toString(),
       fullyDilutedValuation: payload.fullyDilutedValuation.toString(),
       logo: payload.logo,
-      updatedAt: now.toString()
+      updatedAt: now.toString(),
     })
 
     await publisher.publish(PUBLISH_CHANNEL, JSON.stringify(payload))
@@ -134,8 +141,15 @@ async function main() {
     console.error('[ws-server] initial live price fetch failed, using fallback prices', err)
   }
 
-  const wss = new WebSocketServer({ port: WS_PORT })
-  console.log(`[ws-server] listening on ws://localhost:${WS_PORT}`)
+  // A plain http.Server in front of the WS upgrade so host health checks (which send a
+  // normal GET) get a 200 instead of hanging — `new WebSocketServer({ port })` alone
+  // doesn't answer plain HTTP requests.
+  const httpServer = createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' })
+    res.end('ok')
+  })
+  const wss = new WebSocketServer({ server: httpServer })
+  httpServer.listen(WS_PORT, () => console.log(`[ws-server] listening on port ${WS_PORT}`))
 
   wss.on('connection', (ws) => {
     const state: ClientState = { ws, symbols: new Set(MARKETS.map((m) => m.symbol)) }

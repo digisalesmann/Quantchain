@@ -9,9 +9,17 @@ export default function MarketSocketProvider() {
     let closedByEffect = false
 
     function connect() {
-      const port = process.env.NEXT_PUBLIC_WS_PORT || '4001'
-      const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-      socket = new WebSocket(`${protocol}://${window.location.hostname}:${port}`)
+      // In production the WS server runs on a separate host (e.g. Render) from the
+      // Next.js app (e.g. Vercel), so a same-hostname + port URL won't reach it —
+      // NEXT_PUBLIC_WS_URL carries the full cross-origin URL there. Locally both run
+      // on localhost on different ports, so the port-based fallback still works.
+      let url = process.env.NEXT_PUBLIC_WS_URL
+      if (!url) {
+        const port = process.env.NEXT_PUBLIC_WS_PORT || '4001'
+        const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+        url = `${protocol}://${window.location.hostname}:${port}`
+      }
+      socket = new WebSocket(url)
 
       socket.onopen = () => useMarketStore.getState().setConnected(true)
       socket.onclose = () => {
@@ -28,7 +36,7 @@ export default function MarketSocketProvider() {
               change24h: msg.change24h,
               high24h: msg.high24h,
               low24h: msg.low24h,
-              volume24h: msg.volume24h
+              volume24h: msg.volume24h,
             })
           }
         } catch {
